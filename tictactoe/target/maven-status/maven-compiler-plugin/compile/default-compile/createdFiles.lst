@@ -1,0 +1,9 @@
+com\example\tictactoe\model\GameStatus.class
+com\example\tictactoe\TictactoeApplication.class
+com\example\tictactoe\dto\GameView.class
+com\example\tictactoe\dto\CreateGameResponse.class
+com\example\tictactoe\service\GameService.class
+com\example\tictactoe\web\GameController$GameView.class
+com\example\tictactoe\web\GameController.class
+com\example\tictactoe\dto\MoveRequest.class
+com\example\tictactoe\model\Game.class

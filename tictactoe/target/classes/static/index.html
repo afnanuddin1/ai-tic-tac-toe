@@ -1,0 +1,196 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Tic Tac Toe</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+
+  <!-- external stylesheet -->
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Toolbar at the very top -->
+  <div class="toolbar">
+    <button id="new" class="btn btn-primary">
+      <span class="btn-icon">＋</span><span>New Game</span>
+    </button>
+    <button id="reset" class="btn btn-ghost">
+      <span class="btn-icon">↺</span><span>Reset</span>
+    </button>
+
+  </div>
+
+  <!-- Winner Modal -->
+  <div id="winnerModal" class="modal hidden">
+    <div class="modal-card">
+      <h2 id="winnerTitle">Game Over</h2>
+      <p id="winnerMsg">Winner: —</p>
+      <div class="modal-actions">
+        <button id="playAgain" class="btn btn-primary">
+          <span class="btn-icon">↻</span><span>Play Again</span>
+        </button>
+        <button id="closeModal" class="btn btn-ghost">
+          <span class="btn-icon">✕</span><span>Close</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game board -->
+  <main class="card">
+    <h1 class="title">Tic&nbsp;Tac&nbsp;Toe</h1>
+    <section class="wrap">
+      <div id="board" class="board"></div>
+      <div class="legend">Click a square to play as <b>X</b>. Bot (<b>O</b>) replies automatically.</div>
+    </section>
+  </main>
+
+  <!-- inline script (kept here, not in separate JS file) -->
+  <script>
+    let gameId = null;
+    let board = Array(9).fill(' ');
+    let nextPlayer = 'X';
+    let status = 'IN_PROGRESS';
+    let busy = false;
+
+    const $ = (sel) => document.querySelector(sel);
+    const lines = [
+      [0,1,2],[3,4,5],[6,7,8],
+      [0,3,6],[1,4,7],[2,5,8],
+      [0,4,8],[2,4,6]
+    ];
+
+    function getWinningLine(b) {
+      for (const L of lines) {
+        const [a,b1,c] = L;
+        const v = b[a];
+        if (v !== ' ' && v === b[b1] && v === b[c]) return L;
+      }
+      return null;
+    }
+
+    function setStatusPill() {
+      const pill = $('#statusPill'); if (!pill) return;
+      pill.classList.remove('ok','warn','good');
+      if (status === 'X_WON') pill.classList.add('warn');
+      else if (status === 'O_WON') pill.classList.add('good');
+      else if (status === 'DRAW') pill.classList.add('ok');
+    }
+
+    function drawBoard() {
+      const boardEl = $('#board'); boardEl.innerHTML = '';
+      const win = getWinningLine(board);
+
+      board.forEach((v, i) => {
+        const cell = document.createElement('div');
+        cell.className = 'cell ' + (v === 'X' ? 'x' : v === 'O' ? 'o' : '');
+        if (win && win.includes(i)) cell.classList.add('won');
+        cell.textContent = v.trim() ? v : '';
+        cell.onclick = () => play(i);
+        boardEl.appendChild(cell);
+      });
+
+      const statusEl = $('#status'); if (statusEl) statusEl.textContent = status.replace('_',' ');
+      const nextEl = $('#next'); if (nextEl) nextEl.textContent = (status === 'IN_PROGRESS') ? nextPlayer : '—';
+      setStatusPill();
+    }
+
+    async function createGame() {
+      hideWinnerModal();
+      const r = await fetch('/api/games', { method: 'POST' });
+      const j = await r.json();
+      gameId = j.id;
+      await refresh();
+    }
+
+    async function refresh() {
+      if (!gameId) return;
+      const r = await fetch(`/api/games/${gameId}`);
+      if (!r.ok) return;
+      const j = await r.json();
+      board = j.board.split('');
+      nextPlayer = j.nextPlayer;
+      status = j.status;
+      drawBoard();
+    }
+
+    async function resetGame() {
+      hideWinnerModal();
+      if (!gameId) { await createGame(); return; }
+      const r = await fetch(`/api/games/${gameId}/reset`, { method: 'POST' });
+      if (!r.ok) { await createGame(); return; }
+      const j = await r.json();
+      board = j.board.split('');
+      nextPlayer = j.nextPlayer;
+      status = j.status;
+      drawBoard();
+    }
+
+    async function play(cell) {
+      if (busy) return;
+      if (!gameId) { await createGame(); }
+      if (status !== 'IN_PROGRESS') return;
+
+      busy = true;
+      try {
+        // Human (X) move
+        const r = await fetch(`/api/games/${gameId}/moves`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ player: nextPlayer, cell })
+        });
+        if (!r.ok) { alert('Invalid move'); return; }
+        let j = await r.json();
+        board = j.board.split('');
+        nextPlayer = j.nextPlayer;
+        status = j.status;
+        drawBoard();
+        if (status !== 'IN_PROGRESS') { showWinnerModal(status); busy = false; return; }
+
+        // Bot auto-move
+        await new Promise(res => setTimeout(res, 160));
+        const rb = await fetch(`/api/games/${gameId}/bot`, { method: 'POST' });
+        if (rb.ok) {
+          j = await rb.json();
+          board = j.board.split('');
+          nextPlayer = j.nextPlayer;
+          status = j.status;
+          drawBoard();
+          if (status !== 'IN_PROGRESS') showWinnerModal(status);
+        }
+      } finally {
+        busy = false;
+      }
+    }
+
+    function showWinnerModal(status) {
+      const modal = document.getElementById('winnerModal');
+      const title = document.getElementById('winnerTitle');
+      const msg = document.getElementById('winnerMsg');
+
+      if (status === 'X_WON') { title.textContent = 'You Win!'; msg.textContent = 'Winner: X'; }
+      else if (status === 'O_WON') { title.textContent = 'Bot Wins'; msg.textContent = 'Winner: O'; }
+      else { title.textContent = 'Draw'; msg.textContent = 'Good game!'; }
+
+      modal.classList.remove('hidden');
+    }
+    function hideWinnerModal() {
+      document.getElementById('winnerModal').classList.add('hidden');
+    }
+
+    // Bind buttons
+    document.getElementById('new').onclick = createGame;
+    document.getElementById('reset').onclick = resetGame;
+    document.getElementById('playAgain').onclick = async () => { hideWinnerModal(); await resetGame(); };
+    document.getElementById('closeModal').onclick = hideWinnerModal;
+    document.getElementById('winnerModal').addEventListener('click', (e) => {
+      if (e.target.id === 'winnerModal') hideWinnerModal();
+    });
+
+    drawBoard();
+  </script>
+</body>
+</html>
